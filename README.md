@@ -5,6 +5,8 @@
 This repository contains the Go code explained in my presentation "The Human Network: Using Cellular Intelligence to Vet
 Who Gets In".
 
+I have included a brief [description of the architecture](./ARCHITECTURE.md).
+
 ## Use case
 
 KommKorp is a news agency. These days, with so much disinformation, it is hard to find the best local sources for
@@ -47,8 +49,11 @@ narrow for this use case.
 
 Execute the project with:
 ```shell
-go run main.go
+GO_LOG=debug go run cmd/enroll/main.go
 ```
+
+It will launch an HTTP service http://127.0.0.1:8080 and the `GO_LOG` environment variable, will ensure that all logging
+messages are displayed.
 
 ## Assumptions, issues, and limitations
 
