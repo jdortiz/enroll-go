@@ -6,17 +6,44 @@ import (
 	"strings"
 
 	"enroll/app"
+	"enroll/token"
+
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		slog.Warn("could not load .env file", "error", err)
+	}
+
 	opts := &slog.HandlerOptions{
 		Level: getLogLevelFromEnv(),
 	}
 	logHandler := slog.New(slog.NewJSONHandler(os.Stderr, opts))
 	slog.SetDefault(logHandler)
 
-	app := app.New()
-	app.Start()
+	encodingKey, err := token.GetEncodingKey()
+	if err != nil {
+		slog.Error("failed to load encoding key", "error", err)
+		os.Exit(1)
+	}
+	users := seedUsers()
+	a := app.New(users, encodingKey)
+	slog.Error("Application error: HTTP server", "error", a.Start())
+}
+
+func seedUsers() *app.UserInMemoryRepo {
+	users := app.NewUserInMemoryRepo()
+	user, err := app.NewUser("alice", "secret123")
+	if err != nil {
+		slog.Error("failed to create seed user", "error", err)
+		os.Exit(1)
+	}
+	if err := users.Add(user); err != nil {
+		slog.Error("failed to seed user", "error", err)
+		os.Exit(1)
+	}
+	return users
 }
 
 // Returs the slog.Level configured in the environment variable.
@@ -33,6 +60,5 @@ func getLogLevelFromEnv() slog.Level {
 		return slog.LevelError
 	default:
 		return slog.LevelWarn // Errors and warnings are displayed
-
 	}
 }
