@@ -34,7 +34,11 @@ func main() {
 
 func seedUsers() *app.UserInMemoryRepo {
 	users := app.NewUserInMemoryRepo()
-	user, err := app.NewUser("alice", "secret123")
+	verifyPhone := os.Getenv("VERIFY_PHONE")
+	if len(verifyPhone) == 0 {
+		verifyPhone = "34600123456"
+	}
+	user, err := app.NewUser("alice", "secret123", verifyPhone)
 	if err != nil {
 		slog.Error("failed to create seed user", "error", err)
 		os.Exit(1)

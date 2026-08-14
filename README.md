@@ -47,7 +47,29 @@ narrow for this use case.
 
 ## Setup instructions
 
-Execute the project with:
+Create a `.env` file with your secret at the root of the project. It should be similar to the following one:
+```
+JWT_SECRET="-----BEGIN PRIVATE KEY-----
+MIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQDnZNhQpfjz8uJE
+X2+PBNvO/yePbPikjDTn7wDAhuEoYToMP2/WTXoz98dlBkxi7TKXLfsBFt9Mgr5K
+... Omitted ...
+GMaDpeS3QlsX+1hawmvuM8T4Sjr5qoep+c4fPZD+LL9o/jdT3r6new97klpVqLtB
+WsdO0KoAjLxslpX8Eso2DA==
+-----END PRIVATE KEY-----"
+JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA52TYUKX48/LiRF9vjwTb
+... Omitted ...
+sUsL/LrtSKV/5a67zP1j0NMjO1PBlUEE8+sJh0v6taJv2Mj+xJaHc6i4/C8L0n3q
+2QIDAQAB
+-----END PUBLIC KEY-----"
+VONAGE_APP_ID="12345678-abcd-efgh-9012-1a2b3c4d5e6f"
+```
+
+The associated public key must be uploaded to the application defined in the dashboard.
+
+WARNING: `.env` files are in .gitignore so they won't be committed to the repository accidentally.
+
+Once your `.env` file has been created, you can execute the project with:
 ```shell
 GO_LOG=debug go run cmd/enroll/main.go
 ```
@@ -58,6 +80,24 @@ messages are displayed.
 ## Assumptions, issues, and limitations
 
 Commits to this codebase have been made to show progressive implementation of the application.
+
+The users are stored in a simplified `UserInMemoryRepo`. Actual code should use an actual database, but the
+`UserRepository` interface simplifies this change using the [Dependency Inversion
+Principle](https://en.wikipedia.org/wiki/Dependency_inversion_principle).
+
+HTTP service is not encrypted. `ListenAndServeTLS` should be used in `(*App) Start()` providing the certificate and
+private key. Otherwise, login requests are sent in the clear.
+
+Secrets are passed via environment variables set from a `.env` file. That means that the private key is in plain text in
+memory. A secure implementation would require a TPM or another device that implements PKCS#11 or similar. Also, it would
+be better to check that all the secrets are in the file at the beginning, rather than failing when they are needed.
+
+No proper error handling has been implemented. For example, if password hashing fails during `User` creation, the
+application will exit with an error.
+
+Proper logging must also be added to the application. The existing structured logging are meant for demoing and
+debugging purposes.
+
 
 ## Time spent in this project
 

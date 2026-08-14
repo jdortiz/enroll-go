@@ -14,15 +14,16 @@ var ErrUserNotFound = errors.New("user not found")
 type User struct {
 	Username     string
 	PasswordHash string
+	Phone        string
 }
 
 // NewUser creates a new user instance with a hashed password.
-func NewUser(username, password string) (User, error) {
+func NewUser(username, password, phone string) (User, error) {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return User{}, err
 	}
-	return User{Username: username, PasswordHash: string(hash)}, nil
+	return User{Username: username, PasswordHash: string(hash), Phone: phone}, nil
 }
 
 // VerifyPassword checks if the provided plain-text password matches the stored hash.
