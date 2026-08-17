@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
+	"strings"
 
 	"github.com/gorilla/mux"
 
@@ -32,6 +34,7 @@ func (app *App) Start() error {
 	r := mux.NewRouter()
 	r.HandleFunc("/session", app.createSession).Methods(http.MethodPost)
 	r.HandleFunc("/session/verification", app.validateCode).Methods(http.MethodPost)
+	r.HandleFunc("/informant", app.enrollInformant).Methods(http.MethodPost)
 
 	slog.Info(fmt.Sprintf("KommKorp enrollment application: http://%s\n", serverAddr))
 
@@ -129,6 +132,58 @@ func (app *App) validateCode(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	if err := json.NewEncoder(w).Encode(ValidateCodeResponse{Token: *token}); err != nil {
 		slog.Error("Encoding failure: validate code response", "error", err)
+	}
+}
+
+type EnrollInformantRequest struct {
+	Alias   string `json:"alias"`
+	Phone   string `json:"phone"`
+	Country string `json:"country"`
+	Area    string `json:"area"`
+}
+
+// enrollInformant handles the registration of a new informant by verifying their identity.
+func (app *App) enrollInformant(w http.ResponseWriter, r *http.Request) {
+	slog.Debug("Invoked enrollInformant handler")
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		slog.Warn("Authentication token missing in header")
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+
+	decodingKey, err := token.GetDecodingKey()
+	if err != nil {
+		slog.Error("failed to load decoding key", "error", err)
+		http.Error(w, "Missing public key", http.StatusInternalServerError)
+	}
+
+	_, err = token.VerifySessionToken(decodingKey, tokenStr)
+	if err != nil {
+		slog.Warn("Failed to verify session token", "error", err)
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req EnrollInformantRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		slog.Warn("Failed to decode enrollment request", "error", err)
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+
+	validInformant, err := app.requestInsights(req.Phone, req.Country)
+	if err != nil {
+		slog.Warn("Informant validation failed", "error", err)
+		http.Error(w, "informant validation failed", http.StatusInternalServerError)
+		return
+	}
+
+	if *validInformant {
+		w.WriteHeader(http.StatusCreated)
+	} else {
+		w.WriteHeader(http.StatusUnprocessableEntity)
 	}
 }
 
@@ -256,4 +311,81 @@ func (app *App) checkCode(username, requestID, code string) (*string, error) {
 	}
 
 	return &token, nil
+}
+
+// request insights to Vonage's Identity Insights API
+func (app *App) requestInsights(phoneNumber string, country string) (*bool, error) {
+	vonageToken, err := token.ProduceVonageToken(app.encodingKey)
+	if err != nil {
+		slog.Error("Failed to produce Vonage token", "error", err)
+		return nil, fmt.Errorf("failed to produce vonage token: %w", err)
+	}
+
+	type insightsFields struct {
+		Format  map[string]any `json:"format"`
+		Roaming map[string]any `json:"roaming"`
+	}
+
+	type insightsRequest struct {
+		PhoneNumber string         `json:"phone_number"`
+		Purpose     string         `json:"purpose"`
+		Insights    insightsFields `json:"insights"`
+	}
+
+	insightReq := insightsRequest{
+		PhoneNumber: phoneNumber,
+		Purpose:     "FraudPreventionAndDetection",
+		Insights:    insightsFields{Format: map[string]any{}, Roaming: map[string]any{}},
+	}
+
+	insightsURL := "https://api-eu.vonage.com/identity-insights/v1/requests"
+	body, _ := json.Marshal(insightReq)
+	reqBody, err := http.NewRequest(http.MethodPost, insightsURL, bytes.NewBuffer(body))
+	if err != nil {
+		slog.Error("Failed to create Identity Insights HTTP request", "error", err)
+		return nil, fmt.Errorf("failed to create identity insights http request: %w", err)
+	}
+	reqBody.Header.Set("Content-Type", "application/json")
+	reqBody.Header.Set("Authorization", fmt.Sprintf("Bearer %s", vonageToken))
+
+	client := &http.Client{}
+	resp, err := client.Do(reqBody)
+	if err != nil {
+		slog.Error("Failed to call Vonage Identity Insights API", "error", err)
+		return nil, fmt.Errorf("failed to call vonage identity insights api: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		slog.Error("Failed to read Vonage Identity Insights response body", "error", err)
+		return nil, fmt.Errorf("failed to call vonage identity insights api: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		slog.Warn("Vonage Identity Insights API returned non-OK status", "status", resp.StatusCode, "body", string(respBody))
+		return nil, fmt.Errorf("failed to call vonage identity insights api: %w", err)
+	}
+
+	type formatInsight struct {
+		CountryCode string `json:"country_code"`
+	}
+	type roamingInsight struct {
+		CountryCodes []string `json:"country_codes"`
+	}
+	type insightsResult struct {
+		Format  formatInsight  `json:"format"`
+		Roaming roamingInsight `json:"roaming"`
+	}
+	var insightsResponse struct {
+		Insights insightsResult `json:"insights"`
+	}
+
+	if err := json.Unmarshal(respBody, &insightsResponse); err != nil {
+		slog.Error("Failed to decode Vonage Verify response JSON", "error", err, "body", respBody)
+		return nil, fmt.Errorf("failed to decode vonage verify response: %w", err)
+	}
+	validInformant := insightsResponse.Insights.Format.CountryCode == country || slices.Contains(insightsResponse.Insights.Roaming.CountryCodes, country)
+	return &validInformant, nil
+
 }

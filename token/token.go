@@ -92,6 +92,20 @@ func ProduceSessionToken(key crypto.PrivateKey, username string) (string, error)
 	return jwt.NewWithClaims(method, claims).SignedString(key)
 }
 
+// VerifySessionToken verifies the authenticity of a session token using the provided public key.
+func VerifySessionToken(key crypto.PublicKey, tokenStr string) (*SessionClaims, error) {
+	tokenObj, err := jwt.ParseWithClaims(tokenStr, &SessionClaims{}, func(t *jwt.Token) (interface{}, error) {
+		return key, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if claims, ok := tokenObj.Claims.(*SessionClaims); ok && tokenObj.Valid {
+		return claims, nil
+	}
+	return nil, errors.New("invalid token")
+}
+
 // VonageClaims represents the payload of a Vonage JWT.
 type VonageClaims struct {
 	jwt.RegisteredClaims
