@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"strings"
@@ -11,10 +12,14 @@ import (
 	"github.com/joho/godotenv"
 )
 
+var version = "undefined"
+
 func main() {
 	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
 		slog.Warn("could not load .env file", "error", err)
 	}
+
+	fmt.Printf("KommKorp enrollment application v.%s\n", version)
 
 	opts := &slog.HandlerOptions{
 		Level: getLogLevelFromEnv(),
